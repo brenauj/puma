@@ -61,6 +61,8 @@ module Puma
     end
 
     class Worker
+      MAX_WORKERS_SPAWN = 5
+
       def initialize(idx, pid, phase, options)
         @index = idx
         @pid = pid
@@ -68,6 +70,7 @@ module Puma
         @stage = :started
         @signal = "TERM"
         @options = options
+        @max_batch_size = @options[:restart_workers_in_batch_of] || MAX_WORKERS_SPAWN
         @first_term_sent = nil
         @last_checkin = Time.now
         @last_status = '{}'
@@ -126,16 +129,19 @@ module Puma
       end
     end
 
-    MAX_WORKERS_SPAWN = 10
-
     def spawn_workers
       diff = @options[:workers] - @workers.size
-      log "- diff: #{diff}, MAX_WORKERS_SPAWN: #{MAX_WORKERS_SPAWN}, min: #{[diff, MAX_WORKERS_SPAWN].min}"
+      batch_size = [@max_batch_size, diff].min
+      log "- diff: #{diff}, max_batch_size: #{@max_batch_size}, batch_size: #{batch_size}"
       return if diff < 1
+
+      return unless @workers.all?(&:booted?)
 
       master = Process.pid
 
-      [diff, MAX_WORKERS_SPAWN].min.times do
+      log "Booting #{batch_size} workers"
+
+      batch_size.times do
         idx = next_worker_index
         @launcher.config.run_hooks :before_worker_fork, idx
 
@@ -220,7 +226,7 @@ module Puma
         # we need to phase any workers out (which will restart
         # in the right phase).
         #
-        ws = @workers.select { |x| x.phase != @phase }.take(MAX_WORKERS_SPAWN)
+        ws = @workers.select { |x| x.phase != @phase }.take(@max_batch_size)
 
         if ws.any?
           if @phased_state == :idle

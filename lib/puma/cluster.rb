@@ -20,10 +20,12 @@ module Puma
   # instance of a `Puma::Server`.
   class Cluster < Runner
     WORKER_CHECK_INTERVAL = 5
+    RESTART_WORKERS_IN_BATCH_OF_DEFAULT = 5
 
     def initialize(cli, events)
       super cli, events
 
+      @max_batch_size = @options[:restart_workers_in_batch_of] || RESTART_WORKERS_IN_BATCH_OF_DEFAULT
       @phase = 0
       @workers = []
       @next_check = nil
@@ -61,8 +63,6 @@ module Puma
     end
 
     class Worker
-      MAX_WORKERS_SPAWN = 5
-
       def initialize(idx, pid, phase, options)
         @index = idx
         @pid = pid
@@ -70,7 +70,6 @@ module Puma
         @stage = :started
         @signal = "TERM"
         @options = options
-        @max_batch_size = @options[:restart_workers_in_batch_of] || MAX_WORKERS_SPAWN
         @first_term_sent = nil
         @last_checkin = Time.now
         @last_status = '{}'

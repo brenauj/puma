@@ -126,13 +126,16 @@ module Puma
       end
     end
 
+    MAX_WORKERS_SPAWN = 10
+
     def spawn_workers
       diff = @options[:workers] - @workers.size
+      log "- diff: #{diff}, MAX_WORKERS_SPAWN: #{MAX_WORKERS_SPAWN}, min: #{[diff, MAX_WORKERS_SPAWN].min}"
       return if diff < 1
 
       master = Process.pid
 
-      diff.times do
+      [diff, MAX_WORKERS_SPAWN].min.times do
         idx = next_worker_index
         @launcher.config.run_hooks :before_worker_fork, idx
 
@@ -217,16 +220,18 @@ module Puma
         # we need to phase any workers out (which will restart
         # in the right phase).
         #
-        w = @workers.find { |x| x.phase != @phase }
+        ws = @workers.select { |x| x.phase != @phase }.take(MAX_WORKERS_SPAWN)
 
-        if w
+        if ws.any?
           if @phased_state == :idle
             @phased_state = :waiting
-            log "- Stopping #{w.pid} for phased upgrade..."
+            ws.each { |w| log "- Stopping #{w.pid} for phased upgrade..." }
           end
 
-          w.term
-          log "- #{w.signal} sent to #{w.pid}..."
+          ws.each do |w|
+            w.term
+            log "- #{w.signal} sent to #{w.pid}..."
+          end
         end
       end
     end
